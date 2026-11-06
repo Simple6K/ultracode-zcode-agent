@@ -2,8 +2,17 @@
   "name": "ultracode",
   "version": "1.1.0",
   "description": "多代理编排模式（移植自 claude-code /ultracode）：Agent 引擎、worktree 并行写、journal 断点续跑、对抗复核等质量模式、大型只读审计自动路由动态工作流。",
-  "author": { "name": "Simple6K" },
+  "author": {
+    "name": "Simple6K"
+  },
   "license": "MIT",
   "repository": "https://github.com/Simple6K/ultracode-zcode-agent",
-  "keywords": ["multi-agent", "orchestration", "ultracode", "workflow"]
+  "keywords": [
+    "multi-agent",
+    "orchestration",
+    "ultracode",
+    "workflow"
+  ],
+  "skills": "skills",
+  "commands": "commands"
 }

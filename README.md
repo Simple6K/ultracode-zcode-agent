@@ -10,14 +10,26 @@
 
 | 文件 | 安装到 | 作用 |
 |---|---|---|
-| `SKILL.md` | `~/.zcode/skills/ultracode/SKILL.md` | 编排手册：门控、分解、并行纪律、worktree 规范、多回合组合、结构化输出、journal/resume、质量模式、dwf 路由 |
+| `skills/ultracode/SKILL.md` | `~/.zcode/skills/ultracode/SKILL.md` | 编排手册：门控、分解、并行纪律、worktree 规范、多回合组合、结构化输出、journal/resume、质量模式、dwf 路由 |
 | `commands/ultracode.md` | `~/.zcode/commands/ultracode.md` | `/ultracode` 入口：`skills:` 自动挂载手册 + `$ARGUMENTS` 注入任务 |
 
 ## 安装
 
+**方式一：插件市场（推荐，支持一条命令更新）**
+
+```bash
+zcode plugins marketplace add Simple6K/ultracode-zcode-agent
+zcode plugins install ultracode@simple6k-zcode-plugins
+```
+
+更新：`zcode plugins update ultracode@simple6k-zcode-plugins`。
+注意插件技能带命名空间前缀（`ultracode:ultracode`），命令 frontmatter 用限定名引用。
+
+**方式二：直接复制（手工全局安装）**
+
 ```bash
 mkdir -p ~/.zcode/skills/ultracode ~/.zcode/commands
-cp SKILL.md ~/.zcode/skills/ultracode/SKILL.md
+cp skills/ultracode/SKILL.md ~/.zcode/skills/ultracode/SKILL.md
 cp commands/ultracode.md ~/.zcode/commands/ultracode.md
 ```
 
