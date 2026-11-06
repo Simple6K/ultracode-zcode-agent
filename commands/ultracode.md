@@ -1,10 +1,10 @@
 ---
-description: 多代理编排模式：加载 ultracode 手册，把本次任务作为编排对象（opt-in 通道）
+description: 多代理编排模式：加载 ultracode 手册，把本次任务作为 dwf 工作流编排对象（opt-in 通道）
 argument-hint: "要编排的任务"
 skills: ultracode
 ---
 
-用户通过 /ultracode 显式进入多代理编排模式。先加载 ultracode 技能（若本会话尚未加载），再按手册以编排者身份处理本次请求：
+用户通过 /ultracode 显式进入多代理编排模式。先加载 ultracode 技能（若本会话尚未加载），再按手册执行：第一步完成技能门前置（加载官方 dynamic-workflows 技能 + 确认 CreateWorkflow 可用），然后把本次任务作为编排对象处理。
 
 ## User input
 

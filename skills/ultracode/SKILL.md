@@ -1,100 +1,169 @@
 ---
 name: ultracode
-description: 多代理编排模式（Agent 引擎版）。当用户敲 /ultracode、消息里说 ultracode、或用自己的话明确要求多代理并行编排/多个子代理分工/工作流式深挖时使用。Use when the user says "ultracode", explicitly asks for multi-agent orchestration, parallel sub-agents, or adversarial verification.
-when_to_use: 仅限显式 opt-in（见手册 §1 门控）。普通任务不触发。
+description: 多代理编排模式（dwf 引擎版）。当用户敲 /ultracode、消息里说 ultracode、或用自己的话明确要求多代理并行编排/工作流式深挖时使用。Use when the user says "ultracode" or explicitly asks for multi-agent orchestration via workflows.
+when_to_use: 仅限显式 opt-in（见手册 §1）。普通任务不触发。
 ---
 
-# ultracode 编排手册（Agent 引擎版）
+# ultracode 编排手册（dwf 引擎版）
 
-你是编排者（orchestrator）：分解任务、派发子代理（Agent 工具）、校验与汇总结果，自己不做具体工作。本手册管"何时编排、编排多大、质量模式、失败与恢复纪律"；工具的精确行为以官方工具契约为准。
+你是编排者：把任务翻译成**一段 dwf 工作流脚本**，经 CreateWorkflow 交给引擎自主执行。引擎管调度、并发、记账、恢复；你留在循环外，通过确认窗、escalation、留白、终态通知与 run 交互。工具的精确契约以官方 `dynamic-workflows` 技能为准——本手册只讲**判断层**（何时编排、怎么切分、质量模式），不重复工具参考，也不自维护 API 表（官方技能内嵌 facade 全文，随客户端更新）。
 
 ## 1. 门控（opt-in）
 
-仅当以下之一成立才进入编排：
+仅当以下之一成立才进入编排：用户敲了 /ultracode；消息含 "ultracode"；用户用自己的话明确要求多代理/工作流编排；用户调用的技能或命令正文明确要求编排。判定标准是**用户显式意图**，不是任务性质。皆不成立时：自己做或单个 Agent 派发；可一句话说明编排能做什么并告知下次说"用多代理编排"可跳过询问。会话级常开同旧例：用户宣布"本会话 ultracode 开启"后默认编排，压缩后不确定就问一次。
 
-1. 用户敲了 /ultracode；
-2. 用户消息含 "ultracode"；
-3. 用户用自己的话明确要求多代理/并行子代理/工作流编排；
-4. 用户调用的技能或命令正文明确要求编排（如某命令写明"派多个子代理复核"）。
+## 2. 前置（技能门，必做）
 
-判定标准是**用户的显式意图**，不是任务性质——任务"只是会更适合"编排不算。以上皆不成立：用单个 Agent 派发或自己做；可一句话说明编排能做什么、大概几个子代理，问用户是否要，并告知下次说"用多代理编排"可直接跳过询问。
+1. **先加载官方 `dynamic-workflows` 技能**（Skill 工具）——CreateWorkflow 提交 script/path 前要求该技能已在会话中加载，否则被拒（业务码 428）。
+2. 确认 CreateWorkflow 工具可见。不可见 → 向用户报错"需在设置中启用动态工作流"，**不降级、不重试**。
+3. 并发上限与子代理模型不必写死在脚本里：脚本内没有并发原语（默认值由引擎按核数决定），提交后的确认窗里用户可直接调整。
 
-会话级常开：用户宣布"本会话 ultracode 开启"后，每个实质任务默认按本手册编排；用户说"ultracode 关闭"即回退逐次 opt-in。该状态只活在对话里——会话被压缩后若不确定是否仍在生效，问一次用户。
+**提交后第一步是确认窗**：引擎向用户展示脚本全文（默认折叠）、阶段时间线、子代理模型与并发（窗内可调）；用户批准 → run 启动、CreateWorkflow 立即返回；用户**拒绝或选 Refine（拒绝+反馈）** → 按反馈修改脚本重新提交。等待确认期间正常与用户对话，不要重复提交。
 
-## 2. 任务分解（先侦察后派发）
+## 3. 路由判断（何时值得一个 run）
 
-- **先侦察**：编排前先自己做一轮轻量侦察（列相关文件、圈定 diff、确认现状），拿到确定的 work-list 再分解。侦察是普通工具调用，不是编排。
-- 把 work-list 拆成 2–6 个相互独立的子任务；有依赖关系的串行（前序返回后再派后序）。
-- 每个子代理的提示词必须自包含：工作目录（绝对路径）、目标、交付物格式、约束（能/不能做什么、只碰哪些文件/目录）。
-- 大子任务在分解层摊平，不要试图让子代理再派子代理（嵌套不可能，见 §5）。
+- **值得编排**：任务可分解为并行覆盖（多文件/多视角审计、迁移、广扫）；需要独立视角相互校验（先找后对抗验证）；规模超出单上下文。
+- **不值得**：单委派任务、两三个独立查询——直接 Agent 工具或自己做。门控通过但判不值得时，直接执行并向用户说明本次为何未起 run，用户可要求强制编排。
+- **确定性先行**：work-list 能用脚本内确定性手段拿到的（`files.glob/grep`、`git.diff/status`、`world.run`），就不要派子代理去"看"——发现是代码的事，判断才是子代理的事。
 
-## 3. 并行纪律
+## 4. 脚本范式（现场写，十条铁律）
 
-- 相互独立的子任务在**同一回合**发出全部 Agent 调用（真并行），不要逐个等待。
-- 并行度默认 ≤8【2026-11-06 实测校准：8 并行同回合派发、8/8 全部返回、零越界】；**在册子代理数超过上限时，插件 hook 会直接拒绝（deny）新的 Agent 调用**——收到拒绝就等子代理返回或 TaskStop 腾位，不要重试硬闯。上限可用 `<仓库>/.ultracode/max-parallel.txt` 调整。
-- 预计子代理总数 >12 时先向用户报价（几个代理、各做什么、为何值得），经同意再启动。
-- 每个子代理只碰自己的文件/目录；提示词里写明边界，越界即提示词违约。
+1. 现场写 TypeScript，无 `import/export/declare`；顶层 `return` 值即给模型的产物。
+2. 子代理 = `agent(name?, persona?)` 返回的 agent，用 `.ask<T>(instructions)` 派活；`ask` 不带 T 时返回子代理最终文本。
+3. **具名即身份**：字面量重名 = 编译错；动态计算出的重名 = 运行期 run 失败（DuplicateActorName）。fan-out 循环体内不得用固定名。一次性子代理用匿名 `agent()`；要跨 amend 复用缓存的才具名。
+4. **结构化输出用类型**：`ask<T>` 的 T 写成脚本内 `interface`，JSDoc 注释即子代理看到的字段说明；受支持约束标签为 `@minimum/@maximum/@minLength/@maxLength/@pattern/@format/@minItems/@maxItems/@default`（**没有** `@min/@max` 简写，写错会被静默忽略）。校验失败引擎自动让子代理重试，3 次仍不过才失败——不要自己约定 JSON 格式再手工解析。
+5. **失败是 throw 不是 null**：`ask` 失败以 `WorkflowError` 拒绝。逐项容错用 `try/catch` 包住单个 ask，失败的**计入报告**（失败清单或需人工介入），不静默丢弃；容错方向按错误代价选：审计类宁可保守标记，不把失败当通过。
+6. 并发就是普通 JS：不 await + `Promise.all`；多阶段默认流水线（不设人为 barrier），衔接语义（chaining/channel/join）按官方技能决策表选。
+7. 禁 `Date.now()` / `Math.random()` / 无参 `new Date()`——运行期直接抛错。时间戳经 `args` 传入；随机性用索引变体。
+8. **指令文本即缓存键**：ask 的指令哈希是其重放/导入匹配键——resume 按它比对 journal，amend 导入缓存按**具名子代理 + 指令哈希序列**命中，匿名 agent 永不参与缓存。因此：要跨 amend 复用的具名子代理，指令必须是稳定模板（可变数据经控制流分流，不拼进指令）；一次性的匿名 ask 允许内插数据。
+9. 全局限量（引擎硬限）：`report` 65,536 条/run；artifact 32 个 id/run、单 markdown ≤256KB；骨架里用了更紧的自限值。
+10. 阶段名、子代理名用用户的语言——它们出现在确认窗和进度时间线上。
 
-## 4. worktree 规范（并行写文件时）
+## 5. 骨架模式
 
-- 并行改文件的子代理各绑独立 worktree：`git worktree add ../<项目名>-wt-<代理名> -b wt/<代理名>`，提示词写明该 worktree 的绝对路径。
-- 建树失败（非 git 仓库 / 脏树 / 分支已存在）：不派发该写者，向用户报告原因；分支名冲突换 `wt/<代理名>-2` 重试一次；非 git 仓库的写场景降级为**文件级互斥分工**（每文件单写者）并明示降级。
-- 全部完成后逐一 `git diff` 汇总 → 征询用户合并。**合并冲突不自动解决**：列出冲突文件清单与双方意图，交用户裁决。
-- 收尾（必做）：合并完成后 `git worktree remove <路径>` + `git branch -d wt/<代理名>`；用户拒绝合并或需保留审查时，保留 worktree 并向用户明示残留位置与清理命令。
-- 回合异常中断后，恢复时先 `git worktree list` 检测孤儿 worktree，向用户报告清单与内容摘要后再清理或复用。
+语法以官方 facade 为准；`files`/`git`/`world` 是脚本内全局命名空间（成员均为 Promise 返回，须 await），命名空间归属属桌面校准项。
 
-## 5. 多回合组合（大任务协议）
+**A. map-reduce 扫描**（确定性发现 + 匿名扇出 + 逐项容错 + 显式截断）：
 
-- 子代理环境没有派发工具，**嵌套派发不可能**——不要尝试，也不要在子代理提示词里要求它再派。
-- 大任务的"子工作流"= 多个编排回合：每回合一次分解 + 派发 + 汇总，你（主代理）留在回合之间读结果、定下一回合。每回合结束向用户汇报阶段结论。
+```ts
+const all = await files.glob("src/**/*.ts")        // 脚本内确定性，不派代理
+const paths = all.slice(0, 200)
+const results = await Promise.all(paths.map(async (f) => {
+  try {
+    return await agent().ask<{file: string, summary: string, risks: string[]}>(
+      `读工作区文件 ${f}，概括职责、依赖与最大风险`)
+  } catch (e) { return {file: f, error: String(e)} }
+}))
+const failed = results.filter(r => "error" in r)
+report({scanned: results.length, failed: failed.length, truncated: all.length - paths.length})
+return {结论: `扫描 ${results.length}/${all.length}（截断 ${all.length - paths.length}），失败 ${failed.length}`,
+        已完成: results.filter(r => !("error" in r)).map(r => r.file),
+        失败: failed.map(f => f.file), 产物: [], 需人工介入: []}
+```
 
-## 6. 结构化输出纪律
+**B. 评审-修复循环**（typed ask + 引擎侧循环 ≤3 轮；评审失败 ≠ 通过，进人工介入）：
 
-- 需要结构化结果的子任务：提示词里写死交付 JSON 的字段清单与一个示例，要求"最终回复只输出 fenced JSON"。
-- 收到后校验三项：可解析、字段齐、值域合理。不合格者带着具体错误信息重派一次；再失败则标记为不可信并保留原文，不静默丢弃。
-- 作者不复核自己的产出：重要结论由另一个子代理独立验证，或用确定性命令核实——命令能判定的事不派代理去"说"。
+```ts
+const targets = await git.changedFiles()
+const unresolved: string[] = []                      // 评审失败者：不进修复循环，交人工
+for (const round of [1, 2, 3]) {
+  const reviews = await Promise.all(targets.map(async (f) => {
+    try { return await agent().ask<{file: string, pass: boolean, score: number, issues: string[]}>(
+      `评审 ${f} 的改动。pass=是否达标，score=0-10`) }
+    catch (e) { return {file: f, pass: false, score: -1, issues: [`评审失败：${e}`]} }
+  }))
+  const failing = reviews.filter(r => !r.pass && r.score >= 0)
+  unresolved.push(...reviews.filter(r => r.score < 0).map(r => r.file))
+  log(`第 ${round} 轮：${failing.length} 待修，${unresolved.length} 评审失败`)
+  if (!failing.length) break
+  await Promise.all(failing.map((r, i) =>
+    agent(`fixer-${round}-${i}`).ask(`修复 ${r.file}：${r.issues.join("；")}`)))
+}
+return {结论: "评审-修复完成", 已完成: [], 失败: [], 产物: [], 需人工介入: unresolved}
+```
 
-## 7. journal / resume 纪律
+**C. 多路对抗验证**（每发现 3 个反驳者，多数反驳即丢弃；反驳者默认反驳立场，验证者失败保守丢弃）：
 
-- 每个编排任务一份任务日志 `<仓库根>/.ultracode/journal-<指纹>.jsonl`。`.ultracode/` 目录不存在时先创建。
-- **指纹（16 位 hex）**：指纹源 = 用户原始指令的逐字文本。计算：用 Write 工具把指令逐字写入 `<仓库根>/.ultracode/fingerprint-<指纹>.txt`（指纹算出后按此命名归档；多任务并存时互不覆盖），然后 `shasum -a 256 <该文件>` 取前 16 位。**不要**用 printf/echo 拼接指令文本（引号与 `$` 会破坏命令）。指纹源文件随日志一同保留，供恢复时核对。
-- **日志追加-only**：只追加行，不改写历史行。
-- **meta 行**（任务开始写第一行；状态变化在**末尾追加**新 meta 行，不修改旧行）：
-  `{"type":"meta","fingerprint":"<16位hex>","taskDigest":"<一句话>","status":"open|done|abandoned","plan":[{"agent":"<代理名>","task":"<一句话>"}]}`
-  plan 是本次编排的**完整代理名册**——恢复时靠它判定"缺失"。
-- **机制账本（对账基准）**：插件 hook 会自动把每次 Agent 派发/返回记入 `<仓库根>/.ultracode/agent-ledger.jsonl`（含 agentId/outputFile/status）——这条账不由你维护，也不会漏。恢复协议对账规则：任务日志声称 ok 但机制账本无对应记录的条目**不可信**，按缺失重派；机制账本有 outputFile 而任务日志漏记的，从账本找回。
-- **entry 行**（每批结果立即追加，不攒批；仅后台派发的行带 outputFile 字段）：
-  `{"type":"entry","agent":"<代理名>","summary":"<做了什么>","status":"ok|timeout|failed","result":"<结果摘要>","outputFile":"<后台代理的输出文件路径>"}`
-  result 含换行时写成 `\n` 转义，保证整行合法 JSON。
-- **挂死检测**：批量派发后按批用 TaskOutput 轮询；单代理超过约 10 分钟无产出视为挂死 → TaskStop 终止、journal 记 `status:"timeout"`，继续其余代理。
-- 大批量（>6 个子代理）派发用 `run_in_background: true`——官方会把每个后台代理的产出持久化到 outputFile，会话丢失也不重付；journal 记下 outputFile 路径映射。
-- **恢复协议**：列出 `.ultracode/journal-*.jsonl` 各自的 taskDigest 与状态供用户选定要恢复的任务 → 核对该日志的 fingerprint 与其指纹源文件（`fingerprint-<指纹>.txt`）复算值一致（不一致即文件被动过，作废并告知用户）→ 读**最后一行 meta** 判定状态 → `done`：拒绝重放，直接呈现已有结果；`open`：以 meta.plan 为名册，逐行读 entry（坏行——JSON 解析失败或必填字段缺失——跳过并计数），plan 中没有对应 ok entry 的代理即缺失项，连同 timeout/failed 项重派，其余直接复用；`abandoned`：不复用，征询后新指纹开新日志。
-- **任务改向**：用户中途改需求 = 新指纹新日志；旧日志末尾追加一行 `status:"abandoned"` 的 meta。
-- 日志写入失败：**继续编排与汇总**（不因日志停摆），但明确告知用户"本任务中断后无法增量恢复"。
-- 超过 30 天的旧日志：回合开始时提示用户可清理，不自动删除。
+```ts
+const survivors: {finding: string, votes: string}[] = []
+for (const finding of findings) {
+  const verdicts = await Promise.all([1, 2, 3].map(async () => {
+    try { return await agent().ask<{refuted: boolean, reason: string}>(
+      `仅凭仓库证据尝试反驳以下发现，拿不准即 refuted=true：${finding}`) }
+    catch { return {refuted: true, reason: "验证者失败，保守丢弃"} }
+  }))
+  if (verdicts.filter(v => !v.refuted).length >= 2)
+    survivors.push({finding, votes: verdicts.map(v => v.reason).join(" | ")})
+}
+return {结论: `${findings.length} 项发现，${survivors.length} 项存活`, 已完成: [], 失败: [],
+        产物: [], 需人工介入: []}
+```
 
-## 8. 质量模式
+**D. 并行 worktree 写入**（引擎无工作区隔离，靠 actor 自建；指令与命令分离，不把散文拼进 && 链）：
 
-- **对抗复核**：重要发现派 2–3 个独立复核者，各自只凭证据反驳（默认反驳立场），多数反驳即丢弃该发现；复核者不得是产出该发现的代理。
-- **评审团**：关键方案派 N 个独立提案（各不同切入角度）+ 独立评分 + 从最优者合成、嫁接次优者的好想法。
-- **loop-until-dry**：未知规模的排查任务设轮数上限（默认 3），**连续 2 轮**无新发现才收敛（单轮干涸就停会漏长尾）；对"已见全集"去重，绝不带重复项继续。
-- **多镜头扫掠**：需要多视角时每个子代理一个不同 lens——发现侧换不同搜索策略（按文件/按内容/按实体/按时间），复核侧换不同评判视角（正确性/安全/性能/可复现）；不要 N 个相同提示词。
-- **完整性批评家**：交付前派一个独立代理，只问"哪里没支撑、用户接下来会问什么"。
-- **无静默截断**：丢弃、降采样、跳过的项必须显式报告数量与原因——"没查"和"没找到"必须区分。
+```ts
+// 每 actor：先建 worktree，再在其中完成任务并提交；合并留在脚本外（见 §7）
+await Promise.all(tasks.map(async (t) => {
+  const msg = JSON.stringify(t.msg)                 // commit 消息转义，防引号断链
+  await agent().ask(
+    `在独立 worktree 中完成并行写入任务，步骤：\n` +
+    `1. cd "$(git rev-parse --show-toplevel)" && git worktree add ../wt-${t.id} -b wt/${t.id}\n` +
+    `2. cd ../wt-${t.id} 并完成任务：${t.goal}（只改 ${t.files.join(", ")}）\n` +
+    `3. git add -A && git commit -m ${msg}\n` +
+    `最终回复只报分支名与改动文件清单`)
+}))
+```
 
-## 9. 规模纪律
+**E. 审计组合管线**（发现 → 对抗验证 → 综合；"彻底审计"的完整形态）：
 
-- 按用户措辞缩放："找个 bug"少量查找者 + 单票复核；"彻底审计"大池对抗 + 综合阶段。
-- 验证投向错误代价最高处：用户会照单修复的发现配复核者，探索性草稿最多一个读者。
+```ts
+const changed = await git.diff()                     // 确定性输入
+const found = (await Promise.all(lenses.map(async (lens) => {   // 多镜头扇出，每代理不同 lens
+  try { return await agent().ask<{findings: {file: string, title: string, detail: string}[]}>(
+    `以 ${lens} 视角审查以下改动，只报有证据的问题：\n${changed.slice(0, 8000)}`) }
+  catch { return {findings: []} }
+}))).flatMap(r => r.findings)
+// …对 found 逐项跑骨架 C 的对抗验证（代码同上，略）…
+const reportMd = await agent().ask<string>(          // 综合阶段：一个代理产出用户面报告
+  `把以下存活发现整理为 markdown 审计报告（结论先行、逐项附证据路径）：
+   ${survivors.map(s => `- ${s.finding}`).join("\n")}`)
+await artifact.markdown("audit-report", reportMd, {title: "审计报告"})
+return {结论: `发现 ${found.length}，存活 ${survivors.length}，报告见产物`,
+        已完成: [], 失败: [], 产物: ["audit-report"], 需人工介入: []}
+```
 
-## 10. dwf 路由（何时不用本引擎）
+## 6. 汇报契约（承重结构——上下文卫生靠它）
 
-- 大型**只读**审计（预计 >20 个子代理【阈值待校准】、小时级、需要逐项 resume）：建议用户改走动态工作流——先加载 dynamic-workflows 技能，用 CreateWorkflow。其编译校验、运行前确认窗、Amend 缓存在该场景价值最大。
-- **并行写文件的场景不适用 dwf**（无工作区隔离），留在本引擎。
-- dwf 不可用（灰度关闭）时，正常回到本手册，不阻塞。
+- **return 必须是小结构**：`{结论, 已完成[], 失败[], 产物[], 需人工介入[]}`。终态通知里 `result` 是唯一全文位，return 几十万字符会把上下文撑爆（引擎 120k 截断只是兜底）。
+- **全文走 `report(item)`/`artifact.*`**：report 渐进发布、journal 化（run 失败也随通知送达；未声明 dashboard 时省略第二参数）；`artifact.file/markdown` 发布用户面交付物。终态通知对二者只带 count+preview，全量按 runId 可取。
+- 汇报顺序遵循引擎交付指引：结论 → 证据（路径/命令输出）→ 哪些经确定性检查或独立子代理确认、哪些仅判断 → 未覆盖范围。
 
-## 11. 汇报
+## 7. 提交后行为与运行中回路
 
-- 用阶段式叙述告诉用户：派了几个代理、各自做什么、结果如何、丢弃了什么。
-- 子代理失败不掩盖：如实报告失败者与原因，用已完成的结果继续。
-- 代理名、阶段名用用户的语言，不写机器词汇（fan-out / node / 阶段编号）。
+- **提交后不轮询**：run 后台执行，结果以终态通知到达；期间正常响应用户（确认窗流程见 §2）。
+- **escalation**（子代理向主代理提问）：通知到达即处理，用 `ResolveWorkflowQuestion` 按 qid 作答；不确定先 AskUserQuestion 问用户。注意：**无超时**，不处理子代理会一直等；每 ask 上限 3 次。
+- **留白**（脚本向你要代码）：写脚本时不确定的片段用 `hole<T>("名字", "提示")` 留白；通知到达用 `FillWorkflowHole` 补语句体。宁可留白也不要猜。
+- **worktree 收尾**（骨架 D）：run 完成后由你（主代理）逐一 `git diff` 汇总各分支 → 征询用户合并；冲突不自动解决，列清单交用户裁决；合并后 `git worktree remove` + 删分支；中断后先 `git worktree list` 查孤儿。
+- **停滞告警**：判断是等待（escalate 作答）、还是死锁（stop 后 resume）。
+
+## 8. 失败与恢复
+
+- **errored 不可 resume**：读诊断（带 文件:行号，指向 `.zcode/workflow-drafts/` 下的可编辑工作副本——与 `.zcode/workflow-runs/` 的执行归档分工）→ Edit 草稿 → 以 `path` 通道重提交新 run。
+- **stopped/中断可 resume**：`ResumeWorkflowRun`，重放的是 journal 里字节同一的脚本与存档实参——resume 不接受改脚本、不接受换实参。
+- **改脚本续跑**走 `AmendWorkflow` + `path`：铸新 run，已结算的具名子代理工作经导入缓存零 token 沿用（这就是铁律 3/8"要复用才具名、指令即缓存键"的原因）。
+- **会话中断后找回**：`ListWorkflowRuns` → `GetWorkflowRun` 看状态与 `scriptPath` → resume 或 amend。
+- **用户停止的 run（stopReason=user）不自行恢复**；要继续必须用户显式要求。
+
+## 9. 跨轮组合（替代嵌套）
+
+子代理没有 CreateWorkflow（结构性双重禁止）——**嵌套不可能，也不要在 ask 文本里要求子代理起工作流**。大任务 = 多个 run 接力：你读上一 run 的 return，决定下一 run 的脚本；每轮结束向用户汇报阶段结论。
+
+## 10. 规模与质量纪律
+
+- **事前报价**：预计子代理总数 >50、或扇出对象需要截断/降采样时，提交前先向用户陈述规模、轮数与截断策略，获准再提交——确认窗看到的只是脚本，不是规模语义。
+- 按用户措辞缩放："找个 bug" = 少量查找者 + 单票复核；"彻底审计" = 骨架 E 完整管线。
+- 验证投向错误代价最高处。多视角扇出必须**每代理不同 lens**，不要 N 份相同提示词。连续 2 轮无新发现才收敛（loop-until-dry，轮数上限写死在代码）。交付前自问"哪里没支撑、用户接下来会问什么"。丢弃/降采样/跳过的项必须显式报告数量与原因（骨架 A 的 `truncated` 即为例）。
+
+## 11. 旧引擎遗留说明
+
+本插件仍带 v1.x 的两个 hook（并发闸门 + 机制账本），仅作用于 **Agent 工具通道**，与 dwf 路径无关、无需理会。本手册不再使用 Agent 编排路径；dwf 闸门关闭时不降级到旧路径（§2 报错退出）。

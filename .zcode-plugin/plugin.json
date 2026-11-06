@@ -1,7 +1,7 @@
 {
   "name": "ultracode",
-  "version": "1.2.0",
-  "description": "多代理编排模式（移植自 claude-code /ultracode）：Agent 引擎、worktree 并行写、journal 断点续跑、对抗复核等质量模式、大型只读审计自动路由动态工作流。",
+  "version": "2.0.0",
+  "description": "多代理编排模式（dwf 引擎版，移植自 claude-code /ultracode）：把任务翻译成动态工作流脚本，引擎自主执行——typed ask 结构化输出、对抗验证质量模式、actor-Bash 并行 worktree 写入、resume/amend 断点续跑。附 v1.x Agent 通道 hooks 遗留兼容。",
   "author": {
     "name": "Simple6K"
   },

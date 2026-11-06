@@ -1,17 +1,19 @@
 # ultracode-zcode-agent
 
-把 claude-code 的 `/ultracode`（多代理编排模式）移植到 **ZCode 官方客户端**，运行在官方 **Agent 子代理设施**上。零宿主改动、纯用户级 Markdown 资产。
+把 claude-code 的 `/ultracode`（多代理编排模式）移植到 **ZCode 官方客户端**，v2.0 起运行在官方自带的 **dwf 动态工作流引擎**（CreateWorkflow）上。零宿主改动，编排、并发、记账、恢复全部由引擎承担。
 
-> 设计与验收的完整依据见 [docs/设计方案-ultracode-Agent引擎版.md](docs/设计方案-ultracode-Agent引擎版.md)（2026-11-05 定稿，经事实核查与架构评审修订；2026-11-06 实测校准注记在文末修订记录）。
+> 设计权威依据：[docs/design/0001-ultracode-dwf引擎版设计方案.md](docs/design/0001-ultracode-dwf引擎版设计方案.md)（v2.0，dwf 引擎版）。
+> v1.x（Agent 提示词编排路线）方案见 [docs/设计方案-ultracode-Agent引擎版.md](docs/设计方案-ultracode-Agent引擎版.md)（已标 superseded，保留为 v1.x 插件的权威描述与实测记录）。
 
 ## 形态
 
-与 ccb /ultracode 同构：**1 个知识型技能 + 1 个薄斜杠命令**，编排能力由官方 Agent 工具族承担（Agent / TaskOutput / TaskStop / run_in_background），不引入任何自研引擎代码。
+与 ccb /ultracode 同构：**1 个知识型技能 + 1 个薄斜杠命令**。技能是纯知识注入的编排手册（判断层 + 模式骨架），工具参考指回官方 `dynamic-workflows` 技能，不自研任何运行时代码、不自维护 API 表。
 
-| 文件 | 安装到 | 作用 |
-|---|---|---|
-| `skills/ultracode/SKILL.md` | `~/.zcode/skills/ultracode/SKILL.md` | 编排手册：门控、分解、并行纪律、worktree 规范、多回合组合、结构化输出、journal/resume、质量模式、dwf 路由 |
-| `commands/ultracode.md` | `~/.zcode/commands/ultracode.md` | `/ultracode` 入口：`skills:` 自动挂载手册 + `$ARGUMENTS` 注入任务 |
+| 文件 | 作用 |
+|---|---|
+| `skills/ultracode/SKILL.md` | 编排手册：门控、技能门前置（官方 428 门）、路由判断、脚本范式十铁律、五个骨架模式（map-reduce / 评审-修复循环 / 多路对抗验证 / 并行 worktree 写入 / 审计组合管线）、汇报契约、运行中回路（确认窗/escalation/留白）、失败与恢复 |
+| `commands/ultracode.md` | `/ultracode` 入口：`skills:` 自动挂载手册 + `$ARGUMENTS` 注入任务 |
+| `hooks/*.mjs` | v1.x 遗留（Agent 通道并发闸门 + 机制账本），仅向后兼容，与 dwf 主路径无关 |
 
 ## 安装
 
@@ -22,8 +24,8 @@ zcode plugins marketplace add Simple6K/ultracode-zcode-agent
 zcode plugins install ultracode@simple6k-zcode-plugins
 ```
 
-更新：`zcode plugins update ultracode@simple6k-zcode-plugins`。
-注意插件技能带命名空间前缀（`ultracode:ultracode`），命令 frontmatter 用限定名引用。
+更新：`zcode plugins update ultracode@simple6k-zcode-plugins`（同版本号不重拷，需卸载重装或等版本号升级）。
+注意插件技能带命名空间前缀（`ultracode:ultracode`），命令 frontmatter 引用规则以实测为准（列入桌面校准项）。
 
 **方式二：直接复制（手工全局安装）**
 
@@ -36,28 +38,26 @@ cp commands/ultracode.md ~/.zcode/commands/ultracode.md
 重启 ZCode 客户端（或新开会话）生效。验证：
 
 ```bash
-zcode commands list --json   # 应看到 ultracode 且 skills: ["ultracode"] 非空
-zcode skills list --json     # 应看到 ultracode（scope: user）
+zcode commands list --json   # 应看到 ultracode 且 skills 非空
+zcode skills list --json     # 应看到 ultracode（scope: user），描述含"dwf 引擎版"
 ```
 
 ## 使用
 
 - `/ultracode <任务>`（或消息含 ultracode、原话要求多代理编排）进入编排模式；
-- 并行子任务同回合并行派发（默认 ≤8，实测校准）；并行写文件走 worktree 隔离 + 合并征询；
-- 大任务拆多回合，主代理留在回合间；每任务有 `.ultracode/journal-<指纹>.jsonl` 日志，中断后增量补跑；
-- 大型只读审计（>20 子代理）建议路由到 ZCode 动态工作流（CreateWorkflow）。
+- 模型现场写 dwf 脚本（typed ask 结构化输出、逐项容错），经确认窗启动 run，引擎自主推进；
+- 子代理结果全文只落引擎 journal，主模型只收小结构汇报（上下文卫生由引擎机制保证）；
+- 大任务 = 多个 run 跨轮接力（子代理嵌套工作流被引擎结构性禁止）；
+- 中断续跑：resume（字节同一脚本）或 amend（改脚本、已结算工作零 token 沿用）。
 
-## 实测验收（2026-11-06，ZCode.app 3.17.2）
+## 验收状态
 
-| 验收项 | 结果 |
-|---|---|
-| 安装完整性 / 门控阴性 / 并行+journal / worktree 全链路+清理 / 规模报价 / dwf 路由 / 高扇出校准 | 全部通过 |
-| 8 并行校准 | 8/8 返回、零越界 → 默认并行定为 ≤8 |
-| journal 恢复三支路 | done 拒绝重放 / open 缺失补派 / 从 journal 确定性恢复文件 —— 实测通过 |
-| 复合链路 | 侦察 → 报价（1000 代理请求被拦截征询）→ 路由 dwf 40 评审员 → 编译报错迭代重交 → 范围诚实披露 |
+- v1.x 桌面验收（2026-11-06，ZCode.app 3.17.2）：安装/门控/并行/worktree/恢复/复合链路全部通过（记录见旧设计文档）。
+- v2.0：源码级研究 + 四视角对抗评审已通过（19 项发现全修复，其中 3 项 critical）；**桌面校准与验收（D/D-f、U' 系列）待执行**——协议见设计文档 §7 S1/S3。
 
 ## 已知边界
 
-- 子代理不能再派子代理（zcode 机制禁止）——大任务拆多回合组合；
-- 并发上限、结构化校验、journal 记账均为提示层纪律（无引擎强制）；结构化输出与 ccb 生产现状同级（prompt-forced）；
-- 不做 budget（引擎无该原语，且 ccb 生产同样未接线）。
+- 子代理不能嵌套工作流（引擎双重禁止）——大任务拆多 run 组合；
+- dwf 无原生 worktree 隔离：并行写靠骨架模式（actor 经 Bash 自建 worktree + 主代理裁决合并），与 v1.x 持平；
+- CreateWorkflow 有技能门（需先加载官方 dynamic-workflows 技能）与每次 run 的确认窗；
+- 不做 budget（用户裁定不需要）。
