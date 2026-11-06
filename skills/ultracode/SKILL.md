@@ -65,7 +65,7 @@ return {结论: `扫描 ${results.length}/${all.length}（截断 ${all.length - 
 
 ```ts
 const targets = await git.changedFiles()
-const unresolved: string[] = []                      // 评审失败者：不进修复循环，交人工
+const unresolved = new Set<string>()                 // 评审失败者：不进修复循环，交人工（Set 去重）
 for (const round of [1, 2, 3]) {
   const reviews = await Promise.all(targets.map(async (f) => {
     try { return await agent().ask<{file: string, pass: boolean, score: number, issues: string[]}>(
@@ -73,13 +73,13 @@ for (const round of [1, 2, 3]) {
     catch (e) { return {file: f, pass: false, score: -1, issues: [`评审失败：${e}`]} }
   }))
   const failing = reviews.filter(r => !r.pass && r.score >= 0)
-  unresolved.push(...reviews.filter(r => r.score < 0).map(r => r.file))
-  log(`第 ${round} 轮：${failing.length} 待修，${unresolved.length} 评审失败`)
+  reviews.forEach(r => { if (r.score < 0) unresolved.add(r.file) })
+  log(`第 ${round} 轮：${failing.length} 待修，${unresolved.size} 评审失败`)
   if (!failing.length) break
   await Promise.all(failing.map((r, i) =>
     agent(`fixer-${round}-${i}`).ask(`修复 ${r.file}：${r.issues.join("；")}`)))
 }
-return {结论: "评审-修复完成", 已完成: [], 失败: [], 产物: [], 需人工介入: unresolved}
+return {结论: "评审-修复完成", 已完成: [], 失败: [], 产物: [], 需人工介入: [...unresolved]}
 ```
 
 **C. 多路对抗验证**（每发现 3 个反驳者，多数反驳即丢弃；反驳者默认反驳立场，验证者失败保守丢弃）：
