@@ -1,0 +1,12 @@
+{
+  "name": "simple6k-zcode-plugins",
+  "description": "Simple6K 的 ZCode 插件集合：多代理编排与效率工具。",
+  "owner": { "name": "Simple6K" },
+  "plugins": [
+    {
+      "name": "ultracode",
+      "source": { "source": "github", "repo": "Simple6K/ultracode-zcode-agent" },
+      "description": "多代理编排模式（移植自 claude-code /ultracode）：Agent 引擎、worktree 并行写、journal 断点续跑、对抗复核等质量模式、大型只读审计自动路由动态工作流。"
+    }
+  ]
+}
