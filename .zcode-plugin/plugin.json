@@ -1,6 +1,6 @@
 {
   "name": "ultracode",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "多代理编排模式（移植自 claude-code /ultracode）：Agent 引擎、worktree 并行写、journal 断点续跑、对抗复核等质量模式、大型只读审计自动路由动态工作流。",
   "author": {
     "name": "Simple6K"
@@ -14,5 +14,34 @@
     "workflow"
   ],
   "skills": "skills",
-  "commands": "commands"
+  "commands": "commands",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${ZCODE_PLUGIN_ROOT}/hooks/agent-concurrency-gate.mjs\"",
+            "timeout": 10,
+            "onError": "allow",
+            "statusMessage": "ultracode 并发闸门"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${ZCODE_PLUGIN_ROOT}/hooks/agent-ledger.mjs\"",
+            "timeout": 10,
+            "statusMessage": "ultracode 机制账本"
+          }
+        ]
+      }
+    ]
+  }
 }
