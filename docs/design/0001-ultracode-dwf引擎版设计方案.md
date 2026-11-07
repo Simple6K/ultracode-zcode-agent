@@ -193,6 +193,7 @@ v1.x 定稿时的前提「ZCode 无编排引擎可用」在 2026-11-07 的调研
 | D-a facade 签名 | **PASS**：`await files.glob` 全局命名空间、`agent().ask<T>`+interface/JSDoc、逐项 try/catch、`report()` 单参数、汇报契约五字段 return——手册骨架 A 在 3.17.2 逐字成立（草稿与 `dwf_run.result_json` 取证）；run completed、5/5 节点完成、默认并发 8 |
 | D-b 存档工作流 | **机制可用**：模型两次将"创建工作流"理解为 SaveWorkflow（参数化 args、作用域选择、权限弹窗齐全）；**用户裁决：一次性编排不存档**，与 ccb ultracode 用法一致（现场内联脚本 + 引擎自动归档，存档仅为用户显式要求的复用资产）。手册 §3 已补路由条款 |
 | D-c / U'1 worktree 硬需求 | **PASS**（2026-11-07 实测，run `dwfrun-b1c74ce5`）：骨架 D 全链路——3 actor 并行建树（骨架模式，非引擎原语）、每文件单写者、隔离提交、`div` 样本未被误碰、run 内确定性核对（git log/diff）、合并征询（AskUserQuestion）、**部分合并路径**（只合并 calc + 清理其 worktree/分支，另两套原样保留）、主代理按「结论→证据→确定性核对/仅判断→未覆盖」汇报。12/12 节点 completed |
+| U'2 评审-修复循环 | **PASS**（run `math.ts 评审修复`）：2 轮收敛（≤3）；`div` 除零靶子被报出并修复（RangeError）；return 五字段契约；诚实披露"无测试/构建，验证为逐轮独立评审非机器检查"。**观察项**：修复落工作区未自动提交——符合 actor 共享工作目录机制，手册骨架 B 已补说明（run 后呈现 diff、提交由用户裁决） |
 | D-f1 技能门 | **降级为兜底**：3.17.2 上模型会在 CreateWorkflow 前自发加载官方 dynamic-workflows 技能（工具描述引导），428 门从未实际触发；手册 §2 第 1 条保留作兜底 |
 | 附带观察 | 模型自发使用 `EvalWorkflowSnippet` 做确定性摸底、扇出内主动论证计算名唯一性（9006 规则）——手册教学与模型自发行为对齐良好 |
 

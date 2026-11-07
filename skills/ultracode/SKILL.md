@@ -62,7 +62,7 @@ return {结论: `扫描 ${results.length}/${all.length}（截断 ${all.length - 
         失败: failed.map(f => f.file), 产物: [], 需人工介入: []}
 ```
 
-**B. 评审-修复循环**（typed ask + 引擎侧循环 ≤3 轮；评审失败 ≠ 通过，进人工介入）：
+**B. 评审-修复循环**（typed ask + 引擎侧循环 ≤3 轮；评审失败 ≠ 通过，进人工介入；actor 与主会话共享工作目录，**修复落在工作区不自动提交**——run 结束后向用户呈现 diff，提交与否由用户裁决）：
 
 ```ts
 const targets = await git.changedFiles()
