@@ -31,7 +31,7 @@ when_to_use: 仅限显式 opt-in（见手册 §1）。普通任务不触发。
 
 1. 现场写 TypeScript，无 `import/export/declare`；顶层 `return` 值即给模型的产物。
 2. 子代理 = `agent(name?, persona?)` 返回的 agent，用 `.ask<T>(instructions)` 派活；`ask` 不带 T 时返回子代理最终文本。
-3. **具名即身份**：字面量重名 = 编译错；动态计算出的重名 = 运行期 run 失败（DuplicateActorName）。fan-out 循环体内不得用固定字面量名（9006），但**计算名**（如 `agent(`概括·${f}`)`）合法且推荐——扇出对象有自然唯一键时用它：进度时间线与 journal 里显示可读名，amend 时还能参与导入缓存匹配。匿名 `agent()` 仅用于无自然键的小扇出（UI 会显示"未命名代理"）。
+3. **具名即身份**：字面量重名 = 编译错；动态计算出的重名 = 运行期 run 失败（DuplicateActorName）。fan-out 循环体内不得用固定字面量名（9006），但**计算名**（如 agent(\`概括·${f}\`)——模板字符串内嵌文件路径这类自然唯一键）合法且推荐：进度时间线与 journal 里显示可读名，amend 时还能参与导入缓存匹配。匿名 `agent()` 仅用于无自然键的小扇出（UI 会显示"未命名代理"）。
 4. **结构化输出用类型**：`ask<T>` 的 T 写成脚本内 `interface`，JSDoc 注释即子代理看到的字段说明；受支持约束标签为 `@minimum/@maximum/@minLength/@maxLength/@pattern/@format/@minItems/@maxItems/@default`（**没有** `@min/@max` 简写，写错会被静默忽略）。校验失败引擎自动让子代理重试，3 次仍不过才失败——不要自己约定 JSON 格式再手工解析。
 5. **失败是 throw 不是 null**：`ask` 失败以 `WorkflowError` 拒绝。逐项容错用 `try/catch` 包住单个 ask，失败的**计入报告**（失败清单或需人工介入），不静默丢弃；容错方向按错误代价选：审计类宁可保守标记，不把失败当通过。
 6. 并发就是普通 JS：不 await + `Promise.all`；多阶段默认流水线（不设人为 barrier），衔接语义（chaining/channel/join）按官方技能决策表选。
@@ -77,8 +77,10 @@ for (const round of [1, 2, 3]) {
   reviews.forEach(r => { if (r.score < 0) unresolved.add(r.file) })
   log(`第 ${round} 轮：${failing.length} 待修，${unresolved.size} 评审失败`)
   if (!failing.length) break
-  await Promise.all(failing.map((r, i) =>
-    agent(`fixer-${round}-${i}`).ask(`修复 ${r.file}：${r.issues.join("；")}`)))
+  await Promise.all(failing.map(async (r, i) => {
+    try { await agent(`修复·${round}·${i}`).ask(`修复 ${r.file}：${r.issues.join("；")}`) }
+    catch (e) { unresolved.add(`${r.file}（修复失败：${e}）`) }
+  }))
 }
 return {结论: "评审-修复完成", 已完成: [], 失败: [], 产物: [], 需人工介入: [...unresolved]}
 ```
