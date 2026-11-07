@@ -31,12 +31,12 @@ when_to_use: 仅限显式 opt-in（见手册 §1）。普通任务不触发。
 
 1. 现场写 TypeScript，无 `import/export/declare`；顶层 `return` 值即给模型的产物。
 2. 子代理 = `agent(name?, persona?)` 返回的 agent，用 `.ask<T>(instructions)` 派活；`ask` 不带 T 时返回子代理最终文本。
-3. **具名即身份**：字面量重名 = 编译错；动态计算出的重名 = 运行期 run 失败（DuplicateActorName）。fan-out 循环体内不得用固定名。一次性子代理用匿名 `agent()`；要跨 amend 复用缓存的才具名。
+3. **具名即身份**：字面量重名 = 编译错；动态计算出的重名 = 运行期 run 失败（DuplicateActorName）。fan-out 循环体内不得用固定字面量名（9006），但**计算名**（如 `agent(`概括·${f}`)`）合法且推荐——扇出对象有自然唯一键时用它：进度时间线与 journal 里显示可读名，amend 时还能参与导入缓存匹配。匿名 `agent()` 仅用于无自然键的小扇出（UI 会显示"未命名代理"）。
 4. **结构化输出用类型**：`ask<T>` 的 T 写成脚本内 `interface`，JSDoc 注释即子代理看到的字段说明；受支持约束标签为 `@minimum/@maximum/@minLength/@maxLength/@pattern/@format/@minItems/@maxItems/@default`（**没有** `@min/@max` 简写，写错会被静默忽略）。校验失败引擎自动让子代理重试，3 次仍不过才失败——不要自己约定 JSON 格式再手工解析。
 5. **失败是 throw 不是 null**：`ask` 失败以 `WorkflowError` 拒绝。逐项容错用 `try/catch` 包住单个 ask，失败的**计入报告**（失败清单或需人工介入），不静默丢弃；容错方向按错误代价选：审计类宁可保守标记，不把失败当通过。
 6. 并发就是普通 JS：不 await + `Promise.all`；多阶段默认流水线（不设人为 barrier），衔接语义（chaining/channel/join）按官方技能决策表选。
 7. 禁 `Date.now()` / `Math.random()` / 无参 `new Date()`——运行期直接抛错。时间戳经 `args` 传入；随机性用索引变体。
-8. **指令文本即缓存键**：ask 的指令哈希是其重放/导入匹配键——resume 按它比对 journal，amend 导入缓存按**具名子代理 + 指令哈希序列**命中，匿名 agent 永不参与缓存。因此：要跨 amend 复用的具名子代理，指令必须是稳定模板（可变数据经控制流分流，不拼进指令）；一次性的匿名 ask 允许内插数据。
+8. **指令文本即缓存键**：ask 的指令哈希是其重放/导入匹配键——resume 按它比对 journal，amend 导入缓存按**具名子代理 + 指令哈希序列**命中，匿名 agent 永不参与缓存。因此：要跨 amend 复用的具名子代理，指令必须是稳定模板（可变数据经控制流分流，不拼进指令）；一次性、不打算复用的子代理（匿名或计算名）允许内插数据。
 9. 全局限量（引擎硬限）：`report` 65,536 条/run；artifact 32 个 id/run、单 markdown ≤256KB；骨架里用了更紧的自限值。
 10. 阶段名、子代理名用用户的语言——它们出现在确认窗和进度时间线上。
 
@@ -51,7 +51,7 @@ const all = await files.glob("src/**/*.ts")        // 脚本内确定性，不�
 const paths = all.slice(0, 200)
 const results = await Promise.all(paths.map(async (f) => {
   try {
-    return await agent().ask<{file: string, summary: string, risks: string[]}>(
+    return await agent(`概括·${f}`).ask<{file: string, summary: string, risks: string[]}>(
       `读工作区文件 ${f}，概括职责、依赖与最大风险`)
   } catch (e) { return {file: f, error: String(e)} }
 }))
@@ -69,7 +69,7 @@ const targets = await git.changedFiles()
 const unresolved = new Set<string>()                 // 评审失败者：不进修复循环，交人工（Set 去重）
 for (const round of [1, 2, 3]) {
   const reviews = await Promise.all(targets.map(async (f) => {
-    try { return await agent().ask<{file: string, pass: boolean, score: number, issues: string[]}>(
+    try { return await agent(`评审·${f}`).ask<{file: string, pass: boolean, score: number, issues: string[]}>(
       `评审 ${f} 的改动。pass=是否达标，score=0-10`) }
     catch (e) { return {file: f, pass: false, score: -1, issues: [`评审失败：${e}`]} }
   }))
@@ -87,9 +87,9 @@ return {结论: "评审-修复完成", 已完成: [], 失败: [], 产物: [], �
 
 ```ts
 const survivors: {finding: string, votes: string}[] = []
-for (const finding of findings) {
-  const verdicts = await Promise.all([1, 2, 3].map(async () => {
-    try { return await agent().ask<{refuted: boolean, reason: string}>(
+for (const [i, finding] of findings.entries()) {
+  const verdicts = await Promise.all([1, 2, 3].map(async (k) => {
+    try { return await agent(`反驳·${i}·${k}`).ask<{refuted: boolean, reason: string}>(
       `仅凭仓库证据尝试反驳以下发现，拿不准即 refuted=true：${finding}`) }
     catch { return {refuted: true, reason: "验证者失败，保守丢弃"} }
   }))
